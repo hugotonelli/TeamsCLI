@@ -9,5 +9,6 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="3.1.6" />
     <PackageReference Include="Microsoft.Graph.Beta" Version="0.19.0-preview" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.17.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="4.7.0" />
   </ItemGroup>
 </Project>

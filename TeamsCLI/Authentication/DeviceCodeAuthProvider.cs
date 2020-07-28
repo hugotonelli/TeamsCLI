@@ -1,9 +1,11 @@
 ﻿using Microsoft.Graph;
 using Microsoft.Identity.Client;
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
+using TeamsCLI.Authentication;
 
 namespace TeamsCLI
 {
@@ -22,6 +24,17 @@ namespace TeamsCLI
                 .WithAuthority(AadAuthorityAudience.AzureAdMyOrg, true)
                 .WithTenantId(tenantId)
                 .Build();
+            TokenCacheHelper.EnableSerialization(_msalClient.UserTokenCache);
+            Console.WriteLine("Attempting to get user account from cache...");
+            _userAccount = _msalClient.GetAccountsAsync().Result.FirstOrDefault();
+            if (_userAccount != null)
+            {
+                Console.WriteLine("Found!");
+            }
+            else
+            {
+                Console.WriteLine("No user account found!");
+            }
         }
 
         public async Task<string> GetAccessToken()
