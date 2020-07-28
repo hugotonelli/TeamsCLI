@@ -1,6 +1,8 @@
 ﻿using Microsoft.Graph;
 using Microsoft.Identity.Client;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -14,6 +16,7 @@ namespace TeamsCLI
         private IPublicClientApplication _msalClient;
         private string[] _scopes;
         private IAccount _userAccount;
+        private IEnumerable<IAccount> _accounts;
 
         public DeviceCodeAuthProvider(string appId, string[] scopes, string tenantId)
         {
@@ -25,15 +28,51 @@ namespace TeamsCLI
                 .WithTenantId(tenantId)
                 .Build();
             TokenCacheHelper.EnableSerialization(_msalClient.UserTokenCache);
+
+            AccountSelector();
+        }
+
+        public void AccountSelector()
+        {
             Console.WriteLine("Attempting to get user account from cache...");
-            _userAccount = _msalClient.GetAccountsAsync().Result.FirstOrDefault();
-            if (_userAccount != null)
+            var _accounts = _msalClient.GetAccountsAsync().Result.ToArray();
+
+            var cantAccounts = _accounts.Count();
+            if (cantAccounts > 1)
             {
-                Console.WriteLine("Found!");
+                int choice = -1;
+
+                while (choice < 0 || choice > cantAccounts)
+                {
+                    Console.WriteLine("Choose the account you want to use:");
+                    Console.WriteLine("0. Sign in with another account");
+                    for(int i = 0; i < cantAccounts; i++)
+                    {
+                        Console.WriteLine($"{i + 1}. {_accounts[i].Username}");
+                    }
+
+                    try
+                    {
+                        choice = int.Parse(Console.ReadLine());
+                    }
+                    catch (System.FormatException)
+                    {
+                        choice = -1;
+                    }
+                }
+
+                if (choice == 0)
+                {
+                    _userAccount = null;
+                    return;
+                }
+
+                _userAccount = _accounts[choice - 1];
+
             }
             else
             {
-                Console.WriteLine("No user account found!");
+                _userAccount = _accounts.FirstOrDefault();
             }
         }
 
