@@ -1,11 +1,18 @@
 ﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Graph;
 using System;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace TeamsCLI
 {
     class Program
     {
+        const int maxChatsToDisplay = 25;
+        static string testChatId = "";
+        static string cancelString = "0";
+        static string chatIdRegexPattern = @"^\d+:[\d\w-_]+@(([\d\w-_]*)\.)+[\d\w-_]*$";
+
         static void Main(string[] args)
         {
             Console.WriteLine("Teams CLI\n");
@@ -44,7 +51,9 @@ namespace TeamsCLI
                 Console.WriteLine("0. Exit");
                 Console.WriteLine("1. Display access token");
                 Console.WriteLine("2. List calendar events");
-                Console.WriteLine("3. List top 10 chats");
+                Console.WriteLine($"3. List top {maxChatsToDisplay} chats");
+                Console.WriteLine("4. Chat info");
+                Console.WriteLine("5. Chat messages");
 
                 try
                 {
@@ -73,6 +82,22 @@ namespace TeamsCLI
                     case 3:
                         // List chats
                         ListChats();
+                        break;
+                    case 4:
+                        GetChatId();
+                        if (testChatId != cancelString)
+                        {
+                            // Show chat info for chatId
+                            ChatInfo(testChatId);
+                        }
+                        break;
+                    case 5:
+                        GetChatId();
+                        if (testChatId != cancelString)
+                        {
+                            // Show messages for chatId
+                            ChatMessages(testChatId);
+                        }
                         break;
                     default:
                         Console.WriteLine("Invalid choice! Please try again.");
@@ -138,20 +163,26 @@ namespace TeamsCLI
 
             if (chats == null)
             {
+                Console.WriteLine("No chats found.");
                 return;
             }
 
-            chats = chats.Take(10);
+            chats = chats.Take(maxChatsToDisplay);
 
-            Console.WriteLine("Chats: ");
+            Console.WriteLine("Chats: \n");
 
             foreach (var chat in chats)
             {
                 Console.WriteLine($"Chat: {chat.Id}");
-                Console.WriteLine($"  Topic: {chat.Topic}");
-                //Console.WriteLine($"  CreatedDateTime: {chat.CreatedDateTime}");
-                //Console.WriteLine($"  LastUpdatedDateTime: {chat.LastUpdatedDateTime}");
-                ListChatMembers(chat.Id);
+                if (String.IsNullOrEmpty(chat.Topic))
+                {
+                    ListChatMembers(chat.Id);
+                }
+                else
+                {
+                    Console.WriteLine($"  Topic: {chat.Topic}");
+                }
+                Console.WriteLine("");
             }
         }
 
@@ -163,6 +194,71 @@ namespace TeamsCLI
             {
                 Console.WriteLine($"  Members: {String.Join(", ", chatMembers.Select(m => m.DisplayName))}");
             }
+        }
+
+        static void ChatInfo(string chatId)
+        {
+            var chat = GraphHelper.GetSingleChatAsync(chatId).Result;
+
+            if (chat == null)
+            {
+                Console.WriteLine("Chat not found");
+                return;
+            }
+
+            Console.WriteLine($"Chat: {chatId}");
+            if (String.IsNullOrEmpty(chat.Topic))
+            {
+                ListChatMembers(chat.Id);
+            }
+            else
+            {
+                Console.WriteLine($"  Topic: {chat.Topic}");
+            }
+            Console.WriteLine("");
+        }
+
+        static void ChatMessages(string chatId)
+        {
+            var chatMessages = GraphHelper.GetChatMessages(chatId).Result.Take(maxChatsToDisplay).Reverse();
+
+            if (chatMessages == null)
+            {
+                Console.WriteLine("Chat messages not found");
+                return;
+            }
+
+            Console.WriteLine("Chat messages:");
+
+            foreach (var msg in chatMessages)
+            {
+                // Console.WriteLine($"Id: {msg.Id}");
+                Console.WriteLine($"From: {msg.From.User.DisplayName} At: {msg.CreatedDateTime.Value.ToLocalTime()}");
+                //Console.WriteLine(msg.CreatedDateTime);
+                if (msg.Attachments.Any()) Console.WriteLine("Has attachments");
+                if (msg.Importance.HasValue && msg.Importance.Value != ChatMessageImportance.Normal) Console.WriteLine("[IMPORTANT!!!]");
+                Console.WriteLine(msg.Body.Content);
+                if (msg.Mentions.Any()) Console.WriteLine("Mentions: " + String.Join(", ", msg.Mentions.Select(m => m.Mentioned.User.DisplayName)));
+                // Console.WriteLine("Summary: " + msg.Summary);
+                Console.WriteLine("");
+            }
+            Console.WriteLine("");
+        }
+
+        static void GetChatId()
+        {
+            string chatIdInput = "";
+            do
+            {
+                if (!String.IsNullOrWhiteSpace(chatIdInput))
+                {
+                    Console.WriteLine("Incorrect ChatId string format. Try again...");
+                }
+                Console.Write("Please enter chatId (Type 0 to cancel):");
+                chatIdInput = Console.ReadLine();
+            } while (!(chatIdInput == cancelString || Regex.IsMatch(chatIdInput, chatIdRegexPattern)));
+
+            testChatId = chatIdInput;
         }
     }
 }

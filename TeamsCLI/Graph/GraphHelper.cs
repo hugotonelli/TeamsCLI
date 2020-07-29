@@ -98,14 +98,62 @@ namespace TeamsCLI
         {
             try
             {
-                var resultPage = await graphClient.Chats[chatId].Members.Request().GetAsync();
+                var resultPage = await graphClient.Chats[chatId].Members.Request()
+                    .Select(m => new {
+                        m.Id,
+                        m.DisplayName,
+                    })
+                    .GetAsync();
 
                 return resultPage.CurrentPage;
             }
             catch (ServiceException ex)
             {
                 Console.WriteLine($"Error getting members for chat {chatId}: {ex.Message}");
-                throw;
+                return null;
+            }
+        }
+
+        public static async Task<Chat> GetSingleChatAsync(string chatId)
+        {
+            try
+            {
+                var result = await graphClient.Chats[chatId].Request()
+                    .GetAsync();
+
+                return result;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting chat {chatId}: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<IEnumerable<ChatMessage>> GetChatMessages(string chatId)
+        {
+            try
+            {
+                var resultPage = await graphClient.Chats[chatId].Messages.Request()
+                    //.Select(msg => new
+                    //{
+                    //    msg.Id,
+                    //    msg.Attachments,
+                    //    msg.Body,
+                    //    msg.CreatedDateTime,
+                    //    msg.From,
+                    //    msg.Importance,
+                    //    msg.Mentions,
+                    //    msg.Summary,
+                    //})
+                    .GetAsync();
+
+                return resultPage.CurrentPage;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting chat {chatId} messages: {ex.Message}");
+                return null;
             }
         }
     }
