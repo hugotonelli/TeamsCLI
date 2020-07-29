@@ -97,6 +97,7 @@ namespace TeamsCLI
                         {
                             // Show messages for chatId
                             ChatMessages(testChatId);
+                            OfferReply(testChatId);
                         }
                         break;
                     default:
@@ -259,6 +260,17 @@ namespace TeamsCLI
             } while (!(chatIdInput == cancelString || Regex.IsMatch(chatIdInput, chatIdRegexPattern)));
 
             testChatId = chatIdInput;
+        }
+
+        static void OfferReply(string chatId)
+        {
+            string replyText;
+            Console.Write("Reply (empty string to cancel): ");
+            replyText = Console.ReadLine().Trim();
+            if (!String.IsNullOrEmpty(replyText))
+            {
+                GraphHelper.PostChatMessage(chatId, replyText);
+            }
         }
     }
 }

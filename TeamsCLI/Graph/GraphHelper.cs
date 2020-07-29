@@ -156,5 +156,26 @@ namespace TeamsCLI
                 return null;
             }
         }
+
+        public static async void PostChatMessage(string chatId, string message)
+        {
+            try
+            {
+                var chatMessage = new ChatMessage
+                {
+                    Body = new ItemBody
+                    {
+                        Content = message
+                    }
+                };
+
+                await graphClient.Chats[chatId].Messages.Request()
+                    .AddAsync(chatMessage);
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error posting message to chat {chatId}: {ex.Message}");
+            }
+        }
     }
 }

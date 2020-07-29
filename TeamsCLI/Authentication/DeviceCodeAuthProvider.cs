@@ -14,9 +14,8 @@ namespace TeamsCLI
     class DeviceCodeAuthProvider : IAuthenticationProvider
     {
         private IPublicClientApplication _msalClient;
-        private string[] _scopes;
+        private readonly string[] _scopes;
         private IAccount _userAccount;
-        private IEnumerable<IAccount> _accounts;
 
         public DeviceCodeAuthProvider(string appId, string[] scopes, string tenantId)
         {
