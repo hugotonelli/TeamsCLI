@@ -9,10 +9,14 @@ namespace TeamsCLI
     class GraphHelper
     {
         private static GraphServiceClient graphClient;
+        private static IChatMessagesCollectionRequest chatMessagesNextPageRequest;
+        private static readonly int chatMessagesPageSize = 50;
         public static void Initialize(IAuthenticationProvider authProvider)
         {
             graphClient = new GraphServiceClient(authProvider);
         }
+
+        #region Me
 
         public static async Task<User> GetMeAsync()
         {
@@ -27,6 +31,11 @@ namespace TeamsCLI
                 return null;
             }
         }
+
+        #endregion
+
+
+        #region Events
 
         public static async Task<IEnumerable<Event>> GetEventsAsync()
         {
@@ -55,7 +64,12 @@ namespace TeamsCLI
             }
         }
 
-        public static async Task<IEnumerable<Chat>> GetChatsAsync()
+        #endregion
+
+
+        #region Chats
+
+        public static async Task<IEnumerable<Chat>> GetChats()
         {
             try
             {
@@ -134,7 +148,10 @@ namespace TeamsCLI
         {
             try
             {
+                chatMessagesNextPageRequest = null;
+
                 var resultPage = await graphClient.Chats[chatId].Messages.Request()
+                    .Top(chatMessagesPageSize)
                     //.Select(msg => new
                     //{
                     //    msg.Id,
@@ -148,6 +165,8 @@ namespace TeamsCLI
                     //})
                     .GetAsync();
 
+                chatMessagesNextPageRequest = resultPage.NextPageRequest;
+
                 return resultPage.CurrentPage;
             }
             catch (ServiceException ex)
@@ -157,7 +176,31 @@ namespace TeamsCLI
             }
         }
 
-        public static async void PostChatMessage(string chatId, string message)
+        public static async Task<IEnumerable<ChatMessage>> GetChatMessagesNextPage()
+        {
+            try
+            {
+                if (chatMessagesNextPageRequest != null)
+                {
+                    var resultPage = await chatMessagesNextPageRequest
+                        .Top(chatMessagesPageSize)
+                        .GetAsync();
+
+                    chatMessagesNextPageRequest = resultPage.NextPageRequest;
+
+                    return resultPage.CurrentPage;
+                }
+
+                return new List<ChatMessage>();
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting next page of chat messages: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<ChatMessage> PostChatMessage(string chatId, string message)
         {
             try
             {
@@ -169,13 +212,17 @@ namespace TeamsCLI
                     }
                 };
 
-                await graphClient.Chats[chatId].Messages.Request()
+                return await graphClient.Chats[chatId].Messages.Request()
                     .AddAsync(chatMessage);
+                //return null;
             }
             catch (ServiceException ex)
             {
                 Console.WriteLine($"Error posting message to chat {chatId}: {ex.Message}");
+                return null;
             }
         }
+
+        #endregion
     }
 }

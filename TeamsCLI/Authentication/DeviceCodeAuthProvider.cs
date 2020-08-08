@@ -28,7 +28,7 @@ namespace TeamsCLI
                 .Build();
             TokenCacheHelper.EnableSerialization(_msalClient.UserTokenCache);
 
-            AccountSelector();
+            //AccountSelector();
         }
 
         public void AccountSelector()
@@ -73,6 +73,17 @@ namespace TeamsCLI
             {
                 _userAccount = _accounts.FirstOrDefault();
             }
+        }
+
+        public async Task<IEnumerable<IAccount>> GetAccounts()
+        {
+            var _accounts = await _msalClient.GetAccountsAsync();
+            return _accounts;
+        }
+
+        public void SetAccount(IAccount account)
+        {
+            _userAccount = account;
         }
 
         public async Task<string> GetAccessToken()
