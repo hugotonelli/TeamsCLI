@@ -17,7 +17,13 @@ namespace TeamsCLI
         private readonly string[] _scopes;
         private IAccount _userAccount;
 
-        public DeviceCodeAuthProvider(string appId, string[] scopes, string tenantId)
+        private readonly Func<DeviceCodeResult, Task> _deviceCodeResultCallback;
+
+        public DeviceCodeAuthProvider(
+            string appId,
+            string[] scopes,
+            string tenantId,
+            Func<DeviceCodeResult, Task> deviceCodeResultCallback = null)
         {
             _scopes = scopes;
 
@@ -29,6 +35,13 @@ namespace TeamsCLI
             TokenCacheHelper.EnableSerialization(_msalClient.UserTokenCache);
 
             //AccountSelector();
+
+            _deviceCodeResultCallback = deviceCodeResultCallback
+                ?? ((callback) =>
+                    {
+                        Console.WriteLine(callback.Message);
+                        return Task.FromResult(0);
+                    });
         }
 
         public void AccountSelector()
@@ -94,11 +107,8 @@ namespace TeamsCLI
                 try
                 {
                     // Invoke device code flow so user can sign-in with a browser
-                    var result = await _msalClient.AcquireTokenWithDeviceCode(_scopes, callback =>
-                    {
-                        Console.WriteLine(callback.Message);
-                        return Task.FromResult(0);
-                    }).ExecuteAsync();
+                    var result = await _msalClient.AcquireTokenWithDeviceCode(_scopes, _deviceCodeResultCallback)
+                        .ExecuteAsync();
 
                     _userAccount = result.Account;
                     return result.AccessToken;

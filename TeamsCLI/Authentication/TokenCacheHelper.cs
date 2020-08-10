@@ -1,4 +1,5 @@
-﻿using Microsoft.Identity.Client;
+﻿using Integrative.Encryption;
+using Microsoft.Identity.Client;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,7 +20,7 @@ namespace TeamsCLI.Authentication
         /// Path to the token cache. Note that this could be something different for instance for MSIX applications:
         /// private static readonly string CacheFilePath = $"{Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)}\{AppName}\msalcache.bin";
         /// </summary>
-        public static readonly string CacheFilePath = System.Reflection.Assembly.GetExecutingAssembly().Location + "msalcache.bin";
+        public static readonly string CacheFilePath = System.Reflection.Assembly.GetExecutingAssembly().Location + ".msalcache.bin";
 
         private static readonly object FileLock = new object();
 
@@ -28,8 +29,8 @@ namespace TeamsCLI.Authentication
             lock (FileLock)
             {
                 args.TokenCache.DeserializeMsalV3(File.Exists(CacheFilePath)
-                    ? ProtectedData.Unprotect(File.ReadAllBytes(CacheFilePath),
-                    null,
+                    ? CrossProtect.Unprotect(File.ReadAllBytes(CacheFilePath),
+                    new byte[0],
                     DataProtectionScope.CurrentUser)
                 : null);
             }
@@ -44,8 +45,8 @@ namespace TeamsCLI.Authentication
                 {
                     // reflect changes in the persistent store
                     File.WriteAllBytes(CacheFilePath,
-                        ProtectedData.Protect(args.TokenCache.SerializeMsalV3(),
-                        null,
+                        CrossProtect.Protect(args.TokenCache.SerializeMsalV3(),
+                        new byte[0],
                         DataProtectionScope.CurrentUser)
                     );
                 }

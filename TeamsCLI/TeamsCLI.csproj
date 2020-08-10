@@ -6,6 +6,7 @@
     <UserSecretsId>d4271ac9-cb64-49a5-a88a-22a9c36acc10</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Integrative.CrossProtect" Version="0.1.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="3.1.6" />
     <PackageReference Include="Microsoft.Graph.Beta" Version="0.19.0-preview" />
     <PackageReference Include="Microsoft.Identity.Client" Version="4.17.0" />

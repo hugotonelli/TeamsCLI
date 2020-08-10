@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using Terminal.Gui;
 
 namespace TeamsCLI
@@ -14,6 +15,11 @@ namespace TeamsCLI
     {
         const int maxChatsToDisplay = 25;
         static string chatIdRegexPattern = @"^\d+:[\d\w-_]+@(([\d\w-_]*)\.)+[\d\w-_]*$";
+
+        private static DeviceCodeAuthProvider _authProvider;
+        private static string _accessToken;
+
+        private static Dialog _authTokenDialog;
 
         private static Toplevel _top;
         private static MenuBar _menu;
@@ -178,9 +184,20 @@ namespace TeamsCLI
                 var scopes = scopesString.Split(';');
 
                 // Initialize the auth provider with values from appsettings.json
-                var authProvider = new DeviceCodeAuthProvider(appId, scopes, tenantId);
+                _authProvider = new DeviceCodeAuthProvider(
+                    appId, scopes, tenantId,
+                    (callBack) => {
+                        _authTokenDialog = new Dialog("Remote Device Sign-in")
+                        {
+                            Modal = true,
+                            Text = callBack.Message,
+                        };
+                        Terminal.Gui.Application.Run(_authTokenDialog);
+                        // _top.Add(_authTokenDialog);
+                        return Task.FromResult(0);
+                    });
 
-                var accounts = authProvider.GetAccounts().Result.ToArray();
+                var accounts = _authProvider.GetAccounts().Result.ToArray();
 
                 var cantAccounts = accounts.Count();
                 if (cantAccounts > 1)
@@ -228,18 +245,19 @@ namespace TeamsCLI
                         Terminal.Gui.Application.Run(_userSelectDialog);
                     }
 
-                    authProvider.SetAccount(accounts[selectedIndex]);
+                    _authProvider.SetAccount(accounts[selectedIndex]);
                 }
                 else
                 {
-                    authProvider.SetAccount(accounts.FirstOrDefault());
+                    _authProvider.SetAccount(accounts.FirstOrDefault());
                 }
 
                 // Request a token to sign in the user
-                var accessToken = authProvider.GetAccessToken().Result;
+                // var accessToken = _authProvider.GetAccessToken().Result;
+                GetAccessToken();
 
                 // Initialize Graph client
-                GraphHelper.Initialize(authProvider);
+                GraphHelper.Initialize(_authProvider);
 
                 Terminal.Gui.Application.MainLoop.Invoke(GetMe);
 
@@ -252,6 +270,13 @@ namespace TeamsCLI
 
                 Terminal.Gui.Application.Run(_top);
             }
+        }
+
+        private static void GetAccessToken()
+        {
+            var accessToken = _authProvider.GetAccessToken().Result;
+            _accessToken = accessToken;
+            Terminal.Gui.Application.RequestStop();
         }
 
         private static async void GetMe()
