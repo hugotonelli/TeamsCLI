@@ -133,6 +133,32 @@ namespace TeamsCLI
             }
         }
 
+        public string GetAccessTokenBlocking()
+        {
+            if (_userAccount == null)
+            {
+                try
+                {
+                    var result = _msalClient.AcquireTokenWithDeviceCode(_scopes, _deviceCodeResultCallback)
+                        .ExecuteAsync().Result;
+                    _userAccount = result.Account;
+                    return result.AccessToken;
+                }
+                catch (Exception exception)
+                {
+                    Console.WriteLine($"Error getting access token: {exception.Message}");
+                    return null;
+                }
+            }
+            else
+            {
+                var result = _msalClient.AcquireTokenSilent(_scopes, _userAccount)
+                    .ExecuteAsync().Result;
+
+                return result.AccessToken;
+            }
+        }
+
         // This is the required function to implement IAuthenticationProvider
         // The Graph SDK will call this function each time it makes a Graph call.
         public async Task AuthenticateRequestAsync(HttpRequestMessage requestMessage)

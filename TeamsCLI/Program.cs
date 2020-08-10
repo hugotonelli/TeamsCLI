@@ -40,6 +40,7 @@ namespace TeamsCLI
         private static List<ConversationMember> _currentChatIdMembers;
         private static User _me;
 
+
         // Extends TextField to override ProcessColdKey to allow sending reply on Key.Enter
         private class ChatReplyTextField : TextField
         {
@@ -54,20 +55,143 @@ namespace TeamsCLI
             }
         }
 
+
+
+        public static Action running = MainApp;
         static void Main(string[] args)
+        {
+            while (running != null)
+            {
+                running.Invoke();
+            }
+            Terminal.Gui.Application.Shutdown();
+        }
+
+        static void MainApp()
         {
 
             Terminal.Gui.Application.Init();
 
+            // Builds the color scheme for the windows
             var myColorScheme = new ColorScheme()
             {
                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
                 Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
-                HotNormal = Terminal.Gui.Attribute.Make(Color.Black, Color.DarkGray),
+                HotNormal = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
             };
 
             _top = Terminal.Gui.Application.Top;
+
+            #region Setup
+
+            var appConfig = LoadAppConfig();
+
+            // Shows error and terminates app if appConfig is null
+            if (appConfig == null)
+            {
+                MessageBox.ErrorQuery(40, 5, "Error", "Missing or invalid appsettings.json", "OK");
+                running = null;
+                _top.Running = false;
+                return;
+            }
+
+            #endregion Setup
+
+            #region Login
+
+            // Gets settings required for DeviceCodeAuthProvider
+            var appId = appConfig["appId"];
+            var scopesString = appConfig["scopes"];
+            var tenantId = appConfig["tenantId"];
+            var scopes = scopesString.Split(';');
+
+            // Initialize the auth provider
+            _authProvider = new DeviceCodeAuthProvider(
+                appId, scopes, tenantId,
+                (callBack) => {
+                    // Display the DeviceCodeResult message in a MessageBox
+                    MessageBox.Query(50, 8, 
+                        "Remote Device Sign-in",
+                        callBack.Message + " Once you have successfully signed in, hit OK.",
+                        "OK");
+
+                    return Task.FromResult(0);
+                });
+
+            var accounts = _authProvider.GetAccounts().Result.ToArray();
+
+            var cantAccounts = accounts.Count();
+            if (cantAccounts > 1)
+            {
+                Button ok;
+                ListView userListView;
+
+                var selectedIndex = -1;
+
+
+                while (selectedIndex == -1)
+                {
+                    userListView = new ListView(accounts.Select(a => a.Username).ToList())
+                    {
+                        X = 0,
+                        Y = 0,
+                        Height = Dim.Fill(1),
+                        Width = Dim.Fill(),
+                        AllowsMarking = false,
+                        CanFocus = true,
+                        OpenSelectedItem = (a) =>
+                        {
+                            selectedIndex = a.Item;
+                            running = null;
+                            Terminal.Gui.Application.RequestStop();
+                        }
+                    };
+
+                    ok = new Button("OK", true)
+                    {
+                        Clicked = () =>
+                        {
+                            selectedIndex = userListView.SelectedItem;
+                            running = null;
+                            Terminal.Gui.Application.RequestStop();
+                        }
+                    };
+                    _userSelectDialog = new Dialog("Select account", ok)
+                    {
+                        Width = 40,
+                        Height = 10,
+
+                    };
+                    _userSelectDialog.Add(userListView);
+                    //_top.Add(_userSelectDialog);
+
+                    Terminal.Gui.Application.Run(_userSelectDialog);
+                }
+
+                _authProvider.SetAccount(accounts[selectedIndex]);
+            }
+            else
+            {
+                _authProvider.SetAccount(accounts.FirstOrDefault());
+            }
+
+            // Request a token to sign in the user
+            GetAccessToken();
+
+            // Initialize Graph client
+            GraphHelper.Initialize(_authProvider);
+
+            Terminal.Gui.Application.MainLoop.Invoke(GetMe);
+
+
+
+            #endregion Login
+
+
+
+            #region Main Window
+            
 
             var statusBar = new StatusBar(new StatusItem[]
             {
@@ -82,7 +206,11 @@ namespace TeamsCLI
                 {
                     new MenuItem("_Switch account", "", null),
                     new MenuItem("_Logout", "", null),
-                    new MenuItem("_Quit", "", () => Terminal.Gui.Application.RequestStop()),
+                    new MenuItem("_Quit", "", () => {
+                        running = null;
+                        _top.Running = false;
+                        Terminal.Gui.Application.RequestStop();
+                    }),
                 }),
                 new MenuBarItem("_Events", "", () => { }),
                 new MenuBarItem("_Chats", new MenuItem[]
@@ -115,10 +243,6 @@ namespace TeamsCLI
             _chatsListView.OpenSelectedItem += (a) =>
             {
                 _rightPane.SetFocus();
-            };
-            _chatsListView.SelectedItemChanged += (a) =>
-            {
-                _chatMessagesListView.Add(new View("testing"));
             };
 
             _leftPane.Add(_chatsListView);
@@ -164,119 +288,25 @@ namespace TeamsCLI
             _top.Add(_leftPane);
             _top.Add(_rightPane);
 
-            var appConfig = LoadAppSettings();
+            #endregion Main Window
 
-            if (appConfig == null)
-            {
-                var ok = new Button("Quit", true)
-                {
-                    Clicked = () => Terminal.Gui.Application.RequestStop()
-                };
-                var errorDialog = new Dialog("Error", ok);
-                errorDialog.Text = "Missing or invalid appsettings.json";
-                Terminal.Gui.Application.Run(errorDialog);
-            }
-            else
-            {
-                var appId = appConfig["appId"];
-                var scopesString = appConfig["scopes"];
-                var tenantId = appConfig["tenantId"];
-                var scopes = scopesString.Split(';');
-
-                // Initialize the auth provider with values from appsettings.json
-                _authProvider = new DeviceCodeAuthProvider(
-                    appId, scopes, tenantId,
-                    (callBack) => {
-                        _authTokenDialog = new Dialog("Remote Device Sign-in")
-                        {
-                            Modal = true,
-                            Text = callBack.Message,
-                        };
-                        Terminal.Gui.Application.Run(_authTokenDialog);
-                        // _top.Add(_authTokenDialog);
-                        return Task.FromResult(0);
-                    });
-
-                var accounts = _authProvider.GetAccounts().Result.ToArray();
-
-                var cantAccounts = accounts.Count();
-                if (cantAccounts > 1)
-                {
-                    Button ok;
-                    ListView userListView;
-
-                    var selectedIndex = -1;
+            List<Chat> chats = new List<Chat>();
 
 
-                    while (selectedIndex == -1)
-                    {
-                        userListView = new ListView(accounts.Select(a => a.Username).ToList())
-                        {
-                            X = 0,
-                            Y = 0,
-                            Height = Dim.Fill(1),
-                            Width = Dim.Fill(),
-                            AllowsMarking = false,
-                            CanFocus = true,
-                            OpenSelectedItem = (a) =>
-                            {
-                                selectedIndex = a.Item;
-                                Terminal.Gui.Application.RequestStop();
-                            }
-                        };
+            Terminal.Gui.Application.MainLoop.Invoke(ShowChatList);
 
-                        ok = new Button("OK", true)
-                        {
-                            Clicked = () =>
-                            {
-                                selectedIndex = userListView.SelectedItem;
-                                Terminal.Gui.Application.RequestStop();
-                            }
-                        };
-                        _userSelectDialog = new Dialog("Select account", ok)
-                        {
-                            Width = 40,
-                            Height = 20,
-
-                        };
-                        _userSelectDialog.Add(userListView);
-                        //_top.Add(_userSelectDialog);
-
-                        Terminal.Gui.Application.Run(_userSelectDialog);
-                    }
-
-                    _authProvider.SetAccount(accounts[selectedIndex]);
-                }
-                else
-                {
-                    _authProvider.SetAccount(accounts.FirstOrDefault());
-                }
-
-                // Request a token to sign in the user
-                // var accessToken = _authProvider.GetAccessToken().Result;
-                GetAccessToken();
-
-                // Initialize Graph client
-                GraphHelper.Initialize(_authProvider);
-
-                Terminal.Gui.Application.MainLoop.Invoke(GetMe);
-
-                //var chatList = GraphHelper.GetChatsAsync().ConfigureAwait(false);
-
-                List<Chat> chats = new List<Chat>();
+            Terminal.Gui.Application.Run(_top);
 
 
-                Terminal.Gui.Application.MainLoop.Invoke(ShowChatList);
-
-                Terminal.Gui.Application.Run(_top);
-            }
         }
 
         private static void GetAccessToken()
         {
-            var accessToken = _authProvider.GetAccessToken().Result;
-            _accessToken = accessToken;
-            Terminal.Gui.Application.RequestStop();
+            while (String.IsNullOrEmpty(_accessToken))
+            {
+                var accessToken = _authProvider.GetAccessTokenBlocking();
+                _accessToken = accessToken;
+            }
         }
 
         private static async void GetMe()
@@ -450,7 +480,7 @@ namespace TeamsCLI
 
         }
 
-        static IConfigurationRoot LoadAppSettings()
+        static IConfigurationRoot LoadAppConfig()
         {
             var appConfig = new ConfigurationBuilder()
                 .AddUserSecrets<Program>()
