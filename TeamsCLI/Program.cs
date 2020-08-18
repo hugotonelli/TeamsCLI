@@ -354,7 +354,7 @@ namespace TeamsCLI
         {
             _currentChatIdMembers = null;
             var chatMembers = await GraphHelper.GetChatMembers(_currentChatId);
-            _currentChatIdMembers = chatMembers.ToList();
+            _currentChatIdMembers = chatMembers?.ToList();
         }
 
         private static void ResetChatMessagesTimer()
