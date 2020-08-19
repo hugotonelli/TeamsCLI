@@ -47,12 +47,17 @@ namespace TeamsCLI
                     .Select(e => new
                     {
                         e.Subject,
+                        e.Attendees,
                         e.Organizer,
                         e.Start,
-                        e.End
+                        e.End,
+                        e.AdditionalData,
+                        e.Importance,
+                        e.Recurrence,
+                        e.Instances,
                     })
                     // Sort results by when they were created, newest first
-                    .OrderBy("createdDateTime DESC")
+                    .OrderBy("startDate DESC")
                     .GetAsync();
 
                 return resultPage.CurrentPage;
@@ -60,6 +65,29 @@ namespace TeamsCLI
             catch (ServiceException ex)
             {
                 Console.WriteLine($"Error getting events: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<IEnumerable<Event>> GetCalendarItemsAsync()
+        {
+            try
+            {
+                var queryOptions = new List<QueryOption>()
+                {
+                    new QueryOption("startDateTime", DateTime.UtcNow.ToString("s")),
+                    new QueryOption("endDateTime", "2021-01-07T19:00:00-08:00")
+                };
+
+                // GET /me/calendar
+                var resultPage = await graphClient.Me.Calendar.CalendarView.Request(queryOptions)
+                    .GetAsync();
+
+                return resultPage.CurrentPage;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting calendar: {ex.Message}");
                 return null;
             }
         }

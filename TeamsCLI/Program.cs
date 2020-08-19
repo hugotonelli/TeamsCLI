@@ -37,6 +37,12 @@ namespace TeamsCLI
         private static ChatReplyTextField _chatReplyTextField;
         private static object _chatTimerToken;
 
+        private static Dialog _eventsCalendarDialog;
+        private static List<Event> _eventList = new List<Event>();
+        private static ScrollView _eventsScrollView;
+
+        private static ColorScheme _colorScheme;
+
         private static List<ConversationMember> _currentChatIdMembers;
         private static User _me;
 
@@ -73,7 +79,7 @@ namespace TeamsCLI
             Terminal.Gui.Application.Init();
 
             // Builds the color scheme for the windows
-            var myColorScheme = new ColorScheme()
+            _colorScheme = new ColorScheme()
             {
                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
                 Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
@@ -188,14 +194,13 @@ namespace TeamsCLI
 
             #endregion Login
 
-
-
             #region Main Window
             
 
             var statusBar = new StatusBar(new StatusItem[]
             {
-                new StatusItem(Key.F1, "~F1~ Info", ShowInfo)
+                new StatusItem(Key.F1, "~F1~ Info", ShowInfo),
+                new StatusItem(Key.F5, "~F5~ Events", ShowEvents),
             });
 
             _top.Add(statusBar);
@@ -212,12 +217,12 @@ namespace TeamsCLI
                         Terminal.Gui.Application.RequestStop();
                     }),
                 }),
-                new MenuBarItem("_Events", "", () => { }),
-                new MenuBarItem("_Chats", new MenuItem[]
-                {
-                    new MenuItem("List chats", "", null),
-                    new MenuItem("_New chat", "", null),
-                })
+                //new MenuBarItem("_Events", "", () => { }),
+                //new MenuBarItem("_Chats", new MenuItem[]
+                //{
+                //    new MenuItem("List chats", "", null),
+                //    new MenuItem("_New chat", "", null),
+                //})
             });
 
             _leftPane = new FrameView("Chats")
@@ -227,7 +232,7 @@ namespace TeamsCLI
                 Width = 25,
                 Height = Dim.Fill(1),
                 CanFocus = false,
-                ColorScheme = myColorScheme,
+                ColorScheme = _colorScheme,
             };
 
             _chatsListView = new ListView()
@@ -254,7 +259,7 @@ namespace TeamsCLI
                 Width = Dim.Fill(),
                 Height = Dim.Fill(1),
                 CanFocus = true,
-                ColorScheme = myColorScheme,
+                ColorScheme = _colorScheme,
             };
 
             _chatMessagesListView = new ListView()
@@ -292,12 +297,9 @@ namespace TeamsCLI
 
             List<Chat> chats = new List<Chat>();
 
-
             Terminal.Gui.Application.MainLoop.Invoke(ShowChatList);
 
             Terminal.Gui.Application.Run(_top);
-
-
         }
 
         private static void GetAccessToken()
@@ -398,6 +400,7 @@ namespace TeamsCLI
                         + $"[{m.CreatedDateTime?.ToLocalTime().ToString("g")}] "
                         + m.From.User.DisplayName
                         + ": " + m.Body.Content;
+
                 }).Reverse().ToList();
 
             if (msgs.Any())
@@ -480,6 +483,41 @@ namespace TeamsCLI
 
         }
 
+        private static void ShowEvents()
+        {
+            Terminal.Gui.Application.MainLoop.Invoke(ListCalendarEvents);
+            var close = new Button("Close")
+            {
+                Clicked = () => Terminal.Gui.Application.RequestStop(),
+            };
+
+            _eventsCalendarDialog = new Dialog("Events", close)
+            {
+                Width = 65,
+                ColorScheme = Colors.Menu,
+            };
+
+            _eventsScrollView = new ScrollView()
+            {
+                X = 0,
+                Y = 0,
+                ColorScheme = _colorScheme,
+                Width = Dim.Fill(1),
+                Height = Dim.Fill(1),
+                ShowVerticalScrollIndicator = true,
+                ShowHorizontalScrollIndicator = true,
+            };
+
+            _eventsCalendarDialog.Add(_eventsScrollView);
+
+            var textLabel = new Terminal.Gui.Label("No events available.");
+            _eventsScrollView.ContentSize = new Size(60, _eventList.Count);
+
+            _eventsScrollView.Add(textLabel);
+
+            Terminal.Gui.Application.Run(_eventsCalendarDialog);
+        }
+
         static IConfigurationRoot LoadAppConfig()
         {
             var appConfig = new ConfigurationBuilder()
@@ -511,24 +549,74 @@ namespace TeamsCLI
             return dateTimeWithTZ.ToString("g");
         }
 
-        static void ListCalendarEvents()
+        private static async void ListCalendarEvents()
         {
-            var events = GraphHelper.GetEventsAsync().Result;
+            _eventList = new List<Event>();
+            //var events = await GraphHelper.GetEventsAsync();
+            var events = await GraphHelper.GetCalendarItemsAsync();
 
             if (events == null)
             {
                 return;
             }
 
-            Console.WriteLine("Events: ");
+            _eventList = events.ToList();
+            _eventsScrollView.RemoveAll();
 
-            foreach (var calendarEvent in events)
+            for (int i = 0; i < _eventList.Count; i++)
             {
-                Console.WriteLine($"Subject: {calendarEvent.Subject}");
-                Console.WriteLine($"  Organizer: {calendarEvent.Organizer.EmailAddress.Name}");
-                Console.WriteLine($"  Start: {FormatDateTimeTimeZone(calendarEvent.Start)}");
-                Console.WriteLine($"  End: {FormatDateTimeTimeZone(calendarEvent.End)}");
+                var eventItem = _eventList[i];
+                var newEventWindow = new FrameView(eventItem.Subject)
+                {
+                    X = 0,
+                    Y = 6 * i,
+                    Height = 6,
+                    Width = Dim.Fill(),
+                    ColorScheme = _colorScheme,
+                    CanFocus = true,
+                    TextAlignment = TextAlignment.Left,
+                    Text = $"Organizer: {eventItem.Organizer.EmailAddress.Name}\n"
+                            + $"Start: {FormatDateTimeTimeZone(eventItem.Start)}\n"
+                            + $"End: {FormatDateTimeTimeZone(eventItem.End)}\n"
+                };
+                var detailsButton = new Button("Details", true)
+                {
+                    Y = 3,
+                    X = Pos.Center(),
+                    Clicked = () =>
+                    {
+                        string attendees;
+                        if (eventItem.Attendees == null)
+                        {
+                            attendees = "No details available.";
+                        }
+                        else
+                        {
+                            attendees = "Attendees: "
+                                + String.Join(", ", eventItem.Attendees?.Select(a => a.EmailAddress.Name));
+                        }
+                        MessageBox.Query(eventItem.Subject, attendees, "OK");
+                    }
+                };
+                newEventWindow.Enter += (e) => 
+                    {
+                        int absY = Math.Abs(_eventsScrollView.ContentOffset.Y);
+
+                        if (absY > newEventWindow.Frame.Y)
+                        {
+                            _eventsScrollView.ContentOffset = new Point(0, -newEventWindow.Frame.Y);
+                        }
+                        else if (absY + _eventsScrollView.Frame.Height < newEventWindow.Frame.Bottom)
+                        {
+                            _eventsScrollView.ContentOffset = new Point(0,
+                                -(newEventWindow.Frame.Bottom - _eventsScrollView.Frame.Height));
+                        }
+                    };
+                newEventWindow.Add(detailsButton);
+                _eventsScrollView.Add(newEventWindow);
             }
+
+            _eventsScrollView.ContentSize = new Size(60, _eventList.Count * 6);
         }
     }
 }
