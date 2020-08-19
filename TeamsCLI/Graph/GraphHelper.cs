@@ -1,11 +1,18 @@
 ﻿using Microsoft.Graph;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace TeamsCLI
 {
+    public class Meeting
+    {
+        public Event Event { get; set; }
+        public Reminder Reminder { get; set; }
+    }
+
     class GraphHelper
     {
         private static GraphServiceClient graphClient;
@@ -51,13 +58,9 @@ namespace TeamsCLI
                         e.Organizer,
                         e.Start,
                         e.End,
-                        e.AdditionalData,
-                        e.Importance,
-                        e.Recurrence,
-                        e.Instances,
                     })
                     // Sort results by when they were created, newest first
-                    .OrderBy("startDate DESC")
+                    .OrderBy("createdDateTime DESC")
                     .GetAsync();
 
                 return resultPage.CurrentPage;
@@ -89,6 +92,104 @@ namespace TeamsCLI
             {
                 Console.WriteLine($"Error getting calendar: {ex.Message}");
                 return null;
+            }
+        }
+
+        public static async Task<IEnumerable<Calendar>> GetCalendarsAsync()
+        {
+            try
+            {
+                var calendars = await graphClient.Me.Calendars.Request()
+                    .Select(c => new
+                    {
+                        c.Events,
+                        c.Id,
+                        c.Name,
+                        c.Owner
+                    })
+                    .GetAsync();
+
+                return calendars.CurrentPage;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting calendars: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<IEnumerable<Event>> GetEventsInAllCalendarsAsync()
+        {
+            try
+            {
+                var allCalendars = await GetCalendarsAsync();
+                List<Event> allEvents = new List<Event>();
+
+                foreach(var cal in allCalendars)
+                {
+                    if (cal.Events != null)
+                    {
+                        allEvents.AddRange(cal.Events);
+                    }
+                    else
+                    {
+                        var events = await graphClient.Me.Calendars[cal.Id].Events.Request().GetAsync();
+                        allEvents.AddRange(events.CurrentPage);
+                    }
+                }
+
+                return allEvents;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting all events for all calendars : {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<IEnumerable<Reminder>> GetRemindersAsync()
+        {
+            try
+            {
+                var reminderView = await graphClient.Me
+                    .ReminderView(
+                        DateTime.UtcNow.ToString("s"),
+                        DateTime.UtcNow.AddMonths(2).ToString("s"))
+                    .Request()
+                    .GetAsync();
+
+                return reminderView.CurrentPage;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting event reminders: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static async Task<IEnumerable<Meeting>> GetEventsWithRemindersAsync()
+        {
+            try
+            {
+                var meetings = new List<Meeting>();
+                var reminders = await GetRemindersAsync();
+
+                foreach(var reminder in reminders)
+                {
+                    var meetingEvent = await graphClient.Me.Events[reminder.EventId].Request().GetAsync();
+                    meetings.Add(new Meeting()
+                    {
+                        Reminder = reminder,
+                        Event = meetingEvent,
+                    });
+                };
+
+                return meetings;
+            }
+            catch (ServiceException ex)
+            {
+                Console.WriteLine($"Error getting events with reminders: {ex.Message}");
+                throw;
             }
         }
 

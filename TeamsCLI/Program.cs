@@ -39,7 +39,9 @@ namespace TeamsCLI
 
         private static Dialog _eventsCalendarDialog;
         private static List<Event> _eventList = new List<Event>();
+        private static List<Reminder> _eventReminderList = new List<Reminder>();
         private static ScrollView _eventsScrollView;
+        private static List<Meeting> _meetingsList = new List<Meeting>();
 
         private static ColorScheme _colorScheme;
 
@@ -60,8 +62,6 @@ namespace TeamsCLI
                 return base.ProcessColdKey(keyEvent);
             }
         }
-
-
 
         public static Action running = MainApp;
         static void Main(string[] args)
@@ -485,7 +485,8 @@ namespace TeamsCLI
 
         private static void ShowEvents()
         {
-            Terminal.Gui.Application.MainLoop.Invoke(ListCalendarEvents);
+            //Terminal.Gui.Application.MainLoop.Invoke(ListCalendarEvents);
+            Terminal.Gui.Application.MainLoop.Invoke(ListEventsWithReminderEvents);
             var close = new Button("Close")
             {
                 Clicked = () => Terminal.Gui.Application.RequestStop(),
@@ -554,6 +555,8 @@ namespace TeamsCLI
             _eventList = new List<Event>();
             //var events = await GraphHelper.GetEventsAsync();
             var events = await GraphHelper.GetCalendarItemsAsync();
+            //var events = await GraphHelper.GetEventsInAllCalendarsAsync();
+            //var reminders = await GraphHelper.GetRemindersAsync();
 
             if (events == null)
             {
@@ -617,6 +620,79 @@ namespace TeamsCLI
             }
 
             _eventsScrollView.ContentSize = new Size(60, _eventList.Count * 6);
+        }
+        private static async void ListEventsWithReminderEvents()
+        {
+            _meetingsList = new List<Meeting>();
+            var meetings = await GraphHelper.GetEventsWithRemindersAsync();
+
+            if (meetings == null)
+            {
+                return;
+            }
+
+            _meetingsList = meetings.ToList();
+            _eventsScrollView.RemoveAll();
+
+            for (int i = 0; i < _meetingsList.Count; i++)
+            {
+                var meetingItem = _meetingsList[i];
+                var newEventWindow = new FrameView(meetingItem.Event.Subject)
+                {
+                    X = 0,
+                    Y = 6 * i,
+                    Height = 6,
+                    Width = Dim.Fill(),
+                    ColorScheme = _colorScheme,
+                    CanFocus = true,
+                    TextAlignment = TextAlignment.Left,
+                    Text = $"Organizer: {meetingItem.Event.Organizer.EmailAddress.Name}\n"
+                            + $"Start: {FormatDateTimeTimeZone(meetingItem.Event.Start)}\n"
+                            + $"End: {FormatDateTimeTimeZone(meetingItem.Event.End)}\n"
+                };
+                var detailsButton = new Button("Details", true)
+                {
+                    Y = 3,
+                    X = Pos.Center(),
+                    Clicked = () =>
+                    {
+                        string details = "";
+
+                        if (meetingItem.Event.Attendees == null)
+                        {
+                            details += "No attendees details available.\n";
+                        }
+                        else
+                        {
+                            details += "Attendees: "
+                                + String.Join(", ", meetingItem.Event.Attendees?.Select(a => a.EmailAddress.Name))
+                                + "\n";
+                        }
+
+                        details += "Reminder at: " + FormatDateTimeTimeZone(meetingItem.Reminder.ReminderFireTime);
+
+                        MessageBox.Query(meetingItem.Event.Subject, details, "OK");
+                    }
+                };
+                newEventWindow.Enter += (e) =>
+                {
+                    int absY = Math.Abs(_eventsScrollView.ContentOffset.Y);
+
+                    if (absY > newEventWindow.Frame.Y)
+                    {
+                        _eventsScrollView.ContentOffset = new Point(0, -newEventWindow.Frame.Y);
+                    }
+                    else if (absY + _eventsScrollView.Frame.Height < newEventWindow.Frame.Bottom)
+                    {
+                        _eventsScrollView.ContentOffset = new Point(0,
+                            -(newEventWindow.Frame.Bottom - _eventsScrollView.Frame.Height));
+                    }
+                };
+                newEventWindow.Add(detailsButton);
+                _eventsScrollView.Add(newEventWindow);
+            }
+
+            _eventsScrollView.ContentSize = new Size(60, _meetingsList.Count * 6);
         }
     }
 }
