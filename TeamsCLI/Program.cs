@@ -205,12 +205,19 @@ namespace TeamsCLI
             #endregion Login
 
             #region Main Window
-            
+
+            static void Quit()
+            {
+                running = null;
+                _top.Running = false;
+                Terminal.Gui.Application.RequestStop();
+            };
 
             var statusBar = new StatusBar(new StatusItem[]
             {
                 new StatusItem(Key.F1, "~F1~ Info", ShowInfo),
                 new StatusItem(Key.F5, "~F5~ Events", ShowEvents),
+                new StatusItem(Key.ControlQ, "~^Q~ Quit", Quit),
             });
 
             _top.Add(statusBar);
@@ -221,11 +228,7 @@ namespace TeamsCLI
                 {
                     new MenuItem("_Switch account", "", null),
                     new MenuItem("_Logout", "", null),
-                    new MenuItem("_Quit", "", () => {
-                        running = null;
-                        _top.Running = false;
-                        Terminal.Gui.Application.RequestStop();
-                    }),
+                    new MenuItem("_Quit", "", Quit),
                 }),
                 //new MenuBarItem("_Events", "", () => { }),
                 //new MenuBarItem("_Chats", new MenuItem[]
