@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Graph;
+using Microsoft.Graph.Extensions;
 using Microsoft.Identity.Client;
 using System;
 using System.Collections;
@@ -44,6 +45,7 @@ namespace TeamsCLI
         private static List<Meeting> _meetingsList = new List<Meeting>();
 
         private static ColorScheme _colorScheme;
+        private static ColorScheme _colorSchemeInverse;
 
         private static List<ConversationMember> _currentChatIdMembers;
         private static User _me;
@@ -78,12 +80,20 @@ namespace TeamsCLI
 
             Terminal.Gui.Application.Init();
 
-            // Builds the color scheme for the windows
+            // Builds the color scheme for the windows after Gui app init
+             _colorSchemeInverse = new ColorScheme()
+             {
+                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
+                 Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
+                 HotNormal = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
+                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
+             };
+
             _colorScheme = new ColorScheme()
             {
                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
-                Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
-                HotNormal = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
+                Focus = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
+                HotNormal = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
             };
 
@@ -283,6 +293,7 @@ namespace TeamsCLI
                 Y = Pos.Bottom(_chatMessagesListView),
                 Width = Dim.Fill(),
                 CanFocus = true,
+                ColorScheme = Colors.Base,
             };
 
             _rightPane.Add(_chatMessagesListView);
@@ -298,6 +309,8 @@ namespace TeamsCLI
             List<Chat> chats = new List<Chat>();
 
             Terminal.Gui.Application.MainLoop.Invoke(ShowChatList);
+
+            RegisterReminderTimer();
 
             Terminal.Gui.Application.Run(_top);
         }
@@ -315,6 +328,53 @@ namespace TeamsCLI
         {
             var currentUser = await GraphHelper.GetMeAsync();
             _me = currentUser;
+        }
+
+        private static object RegisterReminderTimer()
+        {
+            bool reminderTimer(MainLoop caller)
+            {
+                CheckReminders();
+                return true;
+            }
+
+            return Terminal.Gui.Application.MainLoop.AddTimeout(TimeSpan.FromMinutes(1), reminderTimer);
+        }
+
+
+        private static async void CheckReminders()
+        {
+            await UpdateMeetingsList();
+
+            var now = DateTime.UtcNow;
+            var reminders = _meetingsList
+                .Where(m =>
+                    !m.Dismissed
+                    && m.Reminder.ReminderFireTime.ToDateTime() <= now
+                    && m.Event.Start.ToDateTime().AddMinutes(15) >= now 
+                    && (m.SnoozedUntil == null
+                        || (m.SnoozedUntil.HasValue && m.SnoozedUntil.Value <= now)));
+            if (reminders.Any())
+            {
+                var msg = reminders.Aggregate("", (aggr, curr) =>
+                    aggr + $"{(curr.Event.Start.ToDateTime() - now).TotalMinutes:#} mins : {curr.Event.Subject}\n");
+                var action = MessageBox.Query("Reminders", msg, "Snooze 5 mins", "Dismiss All");
+                if (action == 1)
+                {
+                    foreach(var reminder in reminders)
+                    {
+                        reminder.Dismissed = true;
+                    }
+                }
+                else
+                {
+                    var snoozeUntil = now.AddMinutes(5);
+                    foreach(var reminder in reminders)
+                    {
+                        reminder.SnoozedUntil = snoozeUntil;
+                    }
+                }
+            }
         }
 
         private static async void ShowChatList()
@@ -380,6 +440,9 @@ namespace TeamsCLI
             var msgs = _chatMessageList.Select(m =>
                 {
                     string modifiers = "";
+                    string timeTag = (m.CreatedDateTime?.ToLocalTime().Date == DateTime.Today) ?
+                        m.CreatedDateTime?.ToLocalTime().ToString("t")
+                        : m.CreatedDateTime?.ToLocalTime().ToString("g");
 
                     if (m.Mentions != null && m.Mentions.Any(n => n.Mentioned?.User.Id == _me.Id))
                     {
@@ -397,7 +460,7 @@ namespace TeamsCLI
                     }
 
                     return modifiers
-                        + $"[{m.CreatedDateTime?.ToLocalTime().ToString("g")}] "
+                        + $"[{timeTag}] "
                         + m.From.User.DisplayName
                         + ": " + m.Body.Content;
 
@@ -492,9 +555,10 @@ namespace TeamsCLI
                 Clicked = () => Terminal.Gui.Application.RequestStop(),
             };
 
-            _eventsCalendarDialog = new Dialog("Events", close)
+            _eventsCalendarDialog = new Dialog("Upcoming Events", close)
             {
-                Width = 65,
+                Y = Pos.Center(),
+                Width = 63,
                 ColorScheme = Colors.Menu,
             };
 
@@ -503,16 +567,17 @@ namespace TeamsCLI
                 X = 0,
                 Y = 0,
                 ColorScheme = _colorScheme,
-                Width = Dim.Fill(1),
+                Width = Dim.Fill(),
                 Height = Dim.Fill(1),
                 ShowVerticalScrollIndicator = true,
-                ShowHorizontalScrollIndicator = true,
+                //ShowHorizontalScrollIndicator = true,
+                AutoHideScrollBars = false,
             };
 
             _eventsCalendarDialog.Add(_eventsScrollView);
 
             var textLabel = new Terminal.Gui.Label("No events available.");
-            _eventsScrollView.ContentSize = new Size(60, _eventList.Count);
+            _eventsScrollView.ContentSize = new Size(61, _eventList.Count);
 
             _eventsScrollView.Add(textLabel);
 
@@ -621,9 +686,9 @@ namespace TeamsCLI
 
             _eventsScrollView.ContentSize = new Size(60, _eventList.Count * 6);
         }
-        private static async void ListEventsWithReminderEvents()
+
+        private static async Task UpdateMeetingsList()
         {
-            _meetingsList = new List<Meeting>();
             var meetings = await GraphHelper.GetEventsWithRemindersAsync();
 
             if (meetings == null)
@@ -631,7 +696,27 @@ namespace TeamsCLI
                 return;
             }
 
-            _meetingsList = meetings.ToList();
+            var meetingsDict = _meetingsList.ToDictionary(m => m.Event.Id);
+            foreach (var meeting in meetings)
+            {
+                var id = meeting.Event.Id;
+                if (meetingsDict.TryGetValue(id, out var meet))
+                {
+                    meetingsDict[id].Event = meet.Event;
+                    meetingsDict[id].Reminder = meet.Reminder;
+                }
+                else
+                {
+                    meetingsDict[id] = meeting;
+                }
+            }
+            _meetingsList = meetingsDict.Values.ToList();
+        }
+
+        private static async void ListEventsWithReminderEvents()
+        {
+            await UpdateMeetingsList();
+
             _eventsScrollView.RemoveAll();
 
             for (int i = 0; i < _meetingsList.Count; i++)
@@ -643,7 +728,7 @@ namespace TeamsCLI
                     Y = 6 * i,
                     Height = 6,
                     Width = Dim.Fill(),
-                    ColorScheme = _colorScheme,
+                    ColorScheme = _colorSchemeInverse,
                     CanFocus = true,
                     TextAlignment = TextAlignment.Left,
                     Text = $"Organizer: {meetingItem.Event.Organizer.EmailAddress.Name}\n"
@@ -654,6 +739,7 @@ namespace TeamsCLI
                 {
                     Y = 3,
                     X = Pos.Center(),
+                    ColorScheme = _colorSchemeInverse,
                     Clicked = () =>
                     {
                         string details = "";

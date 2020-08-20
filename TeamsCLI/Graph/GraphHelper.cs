@@ -11,6 +11,8 @@ namespace TeamsCLI
     {
         public Event Event { get; set; }
         public Reminder Reminder { get; set; }
+        public bool Dismissed { get; set; } = false;
+        public DateTime? SnoozedUntil { get; set; } = null;
     }
 
     class GraphHelper
@@ -76,10 +78,11 @@ namespace TeamsCLI
         {
             try
             {
+                var now = DateTime.UtcNow;
                 var queryOptions = new List<QueryOption>()
                 {
-                    new QueryOption("startDateTime", DateTime.UtcNow.ToString("s")),
-                    new QueryOption("endDateTime", "2021-01-07T19:00:00-08:00")
+                    new QueryOption("startDateTime", now.Subtract(TimeSpan.FromDays(1)).ToString("s")),
+                    new QueryOption("endDateTime", now.AddMonths(2).ToString("s"))
                 };
 
                 // GET /me/calendar
@@ -151,10 +154,13 @@ namespace TeamsCLI
         {
             try
             {
-                var reminderView = await graphClient.Me
-                    .ReminderView(
-                        DateTime.UtcNow.ToString("s"),
-                        DateTime.UtcNow.AddMonths(2).ToString("s"))
+                string startDate = DateTime.UtcNow.Subtract(TimeSpan.FromHours(12)).ToString("s");
+                string endDate = DateTime.UtcNow.AddMonths(2).ToString("s");
+
+                //string startDate = "2020-07-05T10:00:00.0000000";
+                //string endDate = "2020-09-05T10:00:00.0000000";
+
+                var reminderView = await graphClient.Me.ReminderView(startDate, endDate)
                     .Request()
                     .GetAsync();
 
