@@ -432,6 +432,7 @@ namespace TeamsCLI
                 {
                     int index = _chatListStrings.IndexOf(chatId);
                     _chatListStrings[index] = membersString;
+                    _chatsListView.SetNeedsDisplay();
                 }
             }
         }
