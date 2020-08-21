@@ -216,22 +216,24 @@ namespace TeamsCLI
                         c.Topic,
                         //c.CreatedDateTime,
                         //c.LastUpdatedDateTime,
-                        //c.Members
+                        c.Members
                     })
                     .GetAsync();
 
-                /* // Too much overhead results in forbidden requests error.
-                if (resultPage.CurrentPage != null)
-                {
-                    foreach (var chat in resultPage.CurrentPage)
-                    {
-                        if (chat.Members == null)
-                        {
-                            chat.Members = await graphClient.Chats[chat.Id].Members.Request().GetAsync();
-                        }
-                    }
-                }
-                */
+                // Too much overhead results in forbidden requests error.
+                //if (resultPage.CurrentPage != null)
+                //{
+                //    foreach (var chat in resultPage.CurrentPage)
+                //    {
+                //        if (chat.Topic == null && chat.Members == null)
+                //        {
+                //            chat.Members = await graphClient.Chats[chat.Id].Members.Request()
+                //                //.Top(4) // Top is still not supported by Microsoft Graph for this request
+                //                .GetAsync();
+                //        }
+                //    }
+                //}
+
 
                 return resultPage.CurrentPage;
 

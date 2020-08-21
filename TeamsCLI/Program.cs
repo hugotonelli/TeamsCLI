@@ -1,14 +1,14 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Graph;
 using Microsoft.Graph.Extensions;
-using Microsoft.Identity.Client;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Terminal.Gui;
+using TeamsCLI.Settings;
+using NStack;
 
 namespace TeamsCLI
 {
@@ -27,6 +27,8 @@ namespace TeamsCLI
         private static FrameView _leftPane;
         private static FrameView _rightPane;
         private static List<Chat> _chatList;
+        private static List<string> _chatListStrings;
+        private static List<string> _chatIdsWithNoTopicOrMembers;
         private static ListView _chatsListView;
         private static int _currentSelectedChatIndex;
         private static string _currentChatId;
@@ -49,6 +51,8 @@ namespace TeamsCLI
 
         private static List<ConversationMember> _currentChatIdMembers;
         private static User _me;
+
+        private static ClientSettings settings;
 
 
         // Extends TextField to override ProcessColdKey to allow sending reply on Key.Enter
@@ -77,18 +81,11 @@ namespace TeamsCLI
 
         static void MainApp()
         {
+            settings = SettingsManager.ReadOrCreateSettings();
 
             Terminal.Gui.Application.Init();
 
-            // Builds the color scheme for the windows after Gui app init
-             _colorSchemeInverse = new ColorScheme()
-             {
-                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
-                 Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
-                 HotNormal = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
-                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
-             };
-
+            // Builds the color schemes for the windows after Gui app init
             _colorScheme = new ColorScheme()
             {
                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
@@ -96,6 +93,13 @@ namespace TeamsCLI
                 HotNormal = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
             };
+             _colorSchemeInverse = new ColorScheme()
+             {
+                 Normal = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
+                 Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
+                 HotNormal = Terminal.Gui.Attribute.Make(Color.White, Color.Blue),
+                 HotFocus = Terminal.Gui.Attribute.Make(Color.White, Color.Black),
+             };
 
             _top = Terminal.Gui.Application.Top;
 
@@ -226,8 +230,8 @@ namespace TeamsCLI
             {
                 new MenuBarItem("_File", new MenuItem[]
                 {
-                    new MenuItem("_Switch account", "", null),
-                    new MenuItem("_Logout", "", null),
+                    //new MenuItem("_Switch account", "", null),
+                    //new MenuItem("_Logout", "", null),
                     new MenuItem("_Quit", "", Quit),
                 }),
                 //new MenuBarItem("_Events", "", () => { }),
@@ -235,14 +239,15 @@ namespace TeamsCLI
                 //{
                 //    new MenuItem("List chats", "", null),
                 //    new MenuItem("_New chat", "", null),
-                //})
+                //}),
+                new MenuBarItem("_Settings", "", ShowSettings),
             });
 
             _leftPane = new FrameView("Chats")
             {
                 X = 0,
                 Y = 1,
-                Width = 25,
+                Width = Dim.Percent(20),
                 Height = Dim.Fill(1),
                 CanFocus = false,
                 ColorScheme = _colorScheme,
@@ -267,7 +272,7 @@ namespace TeamsCLI
 
             _rightPane = new FrameView("Messages")
             {
-                X = 25,
+                X = Pos.Right(_leftPane),
                 Y = 1,
                 Width = Dim.Fill(),
                 Height = Dim.Fill(1),
@@ -335,6 +340,11 @@ namespace TeamsCLI
 
         private static object RegisterReminderTimer()
         {
+            if (!settings.ReminderNotificationsEnabled)
+            {
+                return null;
+            }
+
             bool reminderTimer(MainLoop caller)
             {
                 CheckReminders();
@@ -349,7 +359,8 @@ namespace TeamsCLI
         {
             await UpdateMeetingsList();
 
-            var now = DateTime.UtcNow;
+            DateTime now = DateTime.UtcNow;
+            int snoozeMins = settings.ReminderNotificationsSnoozeMinutes;
             var reminders = _meetingsList
                 .Where(m =>
                     !m.Dismissed
@@ -361,7 +372,9 @@ namespace TeamsCLI
             {
                 var msg = reminders.Aggregate("", (aggr, curr) =>
                     aggr + $"{(curr.Event.Start.ToDateTime() - now).TotalMinutes:#} mins : {curr.Event.Subject}\n");
-                var action = MessageBox.Query("Reminders", msg, "Snooze 5 mins", "Dismiss All");
+                var action = MessageBox.Query("Reminders", msg, $"Snooze {snoozeMins} mins", "Dismiss All"
+                );
+
                 if (action == 1)
                 {
                     foreach(var reminder in reminders)
@@ -371,7 +384,7 @@ namespace TeamsCLI
                 }
                 else
                 {
-                    var snoozeUntil = now.AddMinutes(5);
+                    var snoozeUntil = now.AddMinutes(snoozeMins);
                     foreach(var reminder in reminders)
                     {
                         reminder.SnoozedUntil = snoozeUntil;
@@ -385,8 +398,18 @@ namespace TeamsCLI
             //_chatsListView.Source = null;
             var chats = await GraphHelper.GetChats();
             _chatList = chats.ToList();
-            var ids = chats.Select(c => c.Id).ToList();
-            _chatsListView.SetSource(ids);
+            _chatListStrings = chats.Select(c =>
+                {
+                    if (c.Topic != null && !String.IsNullOrEmpty(c.Topic)) return c.Topic;
+                    if (c.Members != null && c.Members.Any()) return String.Join(", ", c.Members.Select(m => m.DisplayName).Where(n => n != _me.DisplayName));
+                    return c.Id;
+                }).ToList();
+
+            _chatsListView.SetSource(_chatListStrings);
+
+            _chatIdsWithNoTopicOrMembers = _chatList.FindAll(c => c.Topic == null && c.Members == null).Select(c => c.Id).ToList();
+            Terminal.Gui.Application.MainLoop.Invoke(RefreshMembersInChatList);
+
             _chatsListView.OpenSelectedItem = (a) =>
             {
                 _currentSelectedChatIndex = a.Item;
@@ -396,6 +419,21 @@ namespace TeamsCLI
                 Terminal.Gui.Application.MainLoop.Invoke(LoadChatMembers);
                 //ShowChatMessages();
             };
+        }
+
+        private static async void RefreshMembersInChatList()
+        {
+            string myDisplayName = _me.DisplayName;
+            foreach(string chatId in _chatIdsWithNoTopicOrMembers)
+            {
+                var members = await GraphHelper.GetChatMembers(chatId);
+                var membersString = (members == null) ? String.Empty : String.Join(", ", members.Select(m => m.DisplayName).Where(m => m != myDisplayName));
+                if (!String.IsNullOrEmpty(membersString))
+                {
+                    int index = _chatListStrings.IndexOf(chatId);
+                    _chatListStrings[index] = membersString;
+                }
+            }
         }
 
         private static async void ShowChatMessages()
@@ -442,10 +480,16 @@ namespace TeamsCLI
             int msgCount;
             var msgs = _chatMessageList.Select(m =>
                 {
-                    string modifiers = "";
-                    string timeTag = (m.CreatedDateTime?.ToLocalTime().Date == DateTime.Today) ?
-                        m.CreatedDateTime?.ToLocalTime().ToString("t")
-                        : m.CreatedDateTime?.ToLocalTime().ToString("g");
+                    string modifiers = String.Empty;
+                    string timeTag = String.Empty;
+                    if (settings.ChatMessageTimestampEnabled)
+                    {
+                        string timeStamp = (m.CreatedDateTime?.ToLocalTime().Date == DateTime.Today)?
+                                m.CreatedDateTime?.ToLocalTime().ToString(settings.ChatMessageTimestampFormatToday)
+                                : m.CreatedDateTime?.ToLocalTime().ToString(settings.ChatMessageTimestampFormatPastDays);
+                        timeTag = $"[{timeStamp}] ";
+                    }
+                        
 
                     if (m.Mentions != null && m.Mentions.Any(n => n.Mentioned?.User.Id == _me.Id))
                     {
@@ -463,7 +507,7 @@ namespace TeamsCLI
                     }
 
                     return modifiers
-                        + $"[{timeTag}] "
+                        + timeTag
                         + m.From.User.DisplayName
                         + ": " + m.Body.Content;
 
@@ -522,6 +566,147 @@ namespace TeamsCLI
             }
             Console.WriteLine("Invoked Chat Reply method!");
         }
+
+        private static void ShowSettings()
+        {
+            var reminderNotificationsEnabledLabel = new Terminal.Gui.Label("Display reminder notifications ");
+            var reminderNotificationsEnabledCheckBox = new CheckBox(String.Empty, settings.ReminderNotificationsEnabled)
+            {
+                X = Pos.Right(reminderNotificationsEnabledLabel),
+                //Y = Pos.Bottom(reminderNotificationsLabel) + 1,
+            };
+            var reminderNotificationsSnoozeMinutesLabel = new Terminal.Gui.Label("Minutes to snooze: ")
+            {
+                Y = Pos.Bottom(reminderNotificationsEnabledCheckBox) + 1,
+            };
+            var reminderNotificationsSnoozeMinutesTextField = new TextField($"{settings.ReminderNotificationsSnoozeMinutes}")
+            {
+                X = Pos.Right(reminderNotificationsSnoozeMinutesLabel),
+                Y = Pos.Bottom(reminderNotificationsEnabledCheckBox) + 1,
+                Width = 4,
+                ColorScheme = _colorSchemeInverse,
+            };
+            reminderNotificationsSnoozeMinutesTextField.TextChanged += (args) =>
+            {
+                var text = reminderNotificationsSnoozeMinutesTextField.Text.ToString();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    text = new Regex(@"[^\d]+").Replace(text, "");
+                    reminderNotificationsSnoozeMinutesTextField.Text = text;
+                }
+            };
+            var reminderNotificationsFrameView = new FrameView("Reminder notifications")
+            {
+                X = 0,
+                Y = 0,
+                Height = 5,
+                Width = Dim.Fill(),
+            };
+            reminderNotificationsFrameView.Add(
+                reminderNotificationsEnabledLabel,
+                reminderNotificationsEnabledCheckBox,
+                reminderNotificationsSnoozeMinutesLabel,
+                reminderNotificationsSnoozeMinutesTextField
+                );
+
+            var chatMessageTimestampEnabledLabel = new Terminal.Gui.Label("Display timestamps in chat messages");
+            var chatMessageTimestampEnabledCheckBox = new CheckBox(String.Empty, settings.ChatMessageTimestampEnabled)
+            {
+                X = Pos.Right(chatMessageTimestampEnabledLabel),
+                //Y = Pos.Bottom(chatMessageLabel) + 1,
+            };
+            var timeFormatRadioItems = new ustring[] { "Date & Time", "Date only", "Time only" };
+            var timeFormatStringRadioItems = new List<string> { "g", "d", "t" };
+            var chatMessageTimestampFormatTodayLabel = new Terminal.Gui.Label("Timestamp format (today): ")
+            {
+                Y = Pos.Bottom(chatMessageTimestampEnabledCheckBox) + 1,
+            };
+            var chatMessageTimestampFormatTodayRadioGroup = new RadioGroup(timeFormatRadioItems)
+            {
+                X = Pos.Right(chatMessageTimestampFormatTodayLabel),
+                Y = Pos.Bottom(chatMessageTimestampEnabledCheckBox) + 1,
+                SelectedItem = timeFormatStringRadioItems.IndexOf(settings.ChatMessageTimestampFormatToday),
+            };
+            var chatMessageTimestampFormatPastDaysLabel = new Terminal.Gui.Label("Timestamp format (past): ")
+            {
+                Y = Pos.Bottom(chatMessageTimestampFormatTodayRadioGroup) + 1,
+            };
+            var chatMessageTimestampFormatPastDaysRadioGroup = new RadioGroup(timeFormatRadioItems)
+            {
+                X = Pos.Right(chatMessageTimestampFormatPastDaysLabel),
+                Y = Pos.Bottom(chatMessageTimestampFormatTodayRadioGroup) + 1,
+                SelectedItem = timeFormatStringRadioItems.IndexOf(settings.ChatMessageTimestampFormatPastDays),
+            };
+            var chatMessageFrameView = new FrameView("Chat messages")
+            {
+                Y = Pos.Bottom(reminderNotificationsFrameView),
+                Height = 11,
+                Width = Dim.Fill(),
+            };
+            chatMessageFrameView.Add(
+                chatMessageTimestampEnabledLabel,
+                chatMessageTimestampEnabledCheckBox,
+                chatMessageTimestampFormatTodayLabel,
+                chatMessageTimestampFormatTodayRadioGroup,
+                chatMessageTimestampFormatPastDaysLabel,
+                chatMessageTimestampFormatPastDaysRadioGroup
+                );
+
+            var saveButton = new Button("Save", false)
+            {
+                Clicked = () =>
+                {
+                    settings.ReminderNotificationsEnabled = reminderNotificationsEnabledCheckBox.Checked;
+
+                    if (int.TryParse(reminderNotificationsSnoozeMinutesTextField.Text.ToString(), out int mins))
+                    {
+                        settings.ReminderNotificationsSnoozeMinutes = mins;
+                    }
+
+                    settings.ChatMessageTimestampEnabled = chatMessageTimestampEnabledCheckBox.Checked;
+
+                    settings.ChatMessageTimestampFormatToday = 
+                        timeFormatStringRadioItems[chatMessageTimestampFormatTodayRadioGroup.SelectedItem];
+
+                    settings.ChatMessageTimestampFormatPastDays =
+                        timeFormatStringRadioItems[chatMessageTimestampFormatPastDaysRadioGroup.SelectedItem];
+
+                    SettingsManager.SaveSettings(settings);
+ 
+                    Terminal.Gui.Application.RequestStop();
+                }
+            };
+            var cancelButton = new Button("Cancel", false)
+            {
+                Clicked = () =>
+                {
+                    Terminal.Gui.Application.RequestStop();
+                }
+            };
+            var settingsDialog = new Dialog("Settings", saveButton, cancelButton)
+            {
+                ColorScheme = _colorScheme,
+                Width = 75,
+            };
+
+            settingsDialog.Add(
+                reminderNotificationsFrameView,
+                //reminderNotificationsLabel,
+                //reminderNotificationsEnabledCheckBox,
+                //reminderNotificationsSnoozeMinutesLabel,
+                //reminderNotificationsSnoozeMinutesTextField,
+                chatMessageFrameView
+                //chatMessageLabel,
+                //chatMessageTimestampEnabledCheckBox,
+                //chatMessageTimestampFormatTodayLabel,
+                //chatMessageTimestampFormatTodayRadioGroup,
+                //chatMessageTimestampFormatPastDaysLabel,
+                //chatMessageTimestampFormatPastDaysRadioGroup
+                );
+
+            Terminal.Gui.Application.Run(settingsDialog);
+        }
+
 
         private static void ShowInfo()
         {
